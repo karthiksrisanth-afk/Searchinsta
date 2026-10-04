@@ -5,51 +5,59 @@ on:
   push:
     paths:
       - "**.zip"
-      - ".github/workflows/android-apk.yml"
+      - ".github/workflows/*.yml"
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Find project ZIP
+      - name: Find Project ZIP
         run: |
           ZIP=$(find . -maxdepth 2 -name "*.zip" | head -1)
           if [ -z "$ZIP" ]; then
-            echo "No project ZIP found"
+            echo "Error: No project ZIP file found in the repository."
             exit 1
           fi
-          mkdir extracted
+          echo "Found ZIP: $ZIP"
+          mkdir -p extracted
           unzip -q "$ZIP" -d extracted
 
-      - name: Find Android project
+      - name: Find Android Project Directory
         run: |
           PROJECT=$(find extracted -name settings.gradle -o -name settings.gradle.kts | head -1)
           if [ -z "$PROJECT" ]; then
-            echo "Android project not found"
+            echo "Error: Android project (settings.gradle) not found inside ZIP."
             exit 1
           fi
-          echo "PROJECT_DIR=$(dirname "$PROJECT")" >> "$GITHUB_ENV"
+          PROJECT_DIR=$(dirname "$PROJECT")
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-      - name: Set up Java
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Android
+      - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Build APK
+      - name: Build APK with Gradle
         run: |
-          cd "$PROJECT_DIR"
-          gradle assembleDebug --no-daemon
+          cd "$GITHUB_WORKSPACE/$PROJECT_DIR"
+          if [ -f "gradlew" ]; then
+            chmod +x gradlew
+            ./gradlew assembleDebug --no-daemon
+          else
+            gradle assembleDebug --no-daemon
+          fi
 
-      - name: Upload APK
+      - name: Upload Built APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: InstagramDataSearch-APK
           path: "**/build/outputs/apk/debug/*.apk"
+          
