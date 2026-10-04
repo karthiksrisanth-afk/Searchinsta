@@ -15,66 +15,88 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Find Project ZIP
+      - name: Extract Project Archive
         run: |
           ZIP=$(find . -maxdepth 2 -name "*.zip" | head -1)
           if [ -z "$ZIP" ]; then
-            echo "Error: No project ZIP file found in the repository."
+            echo "::error::No .zip project file found in repository root."
             exit 1
           fi
-          echo "Found ZIP: $ZIP"
+          echo "Found project archive: $ZIP"
           mkdir -p extracted
           unzip -q "$ZIP" -d extracted
 
-      - name: Find Android Project Directory
+      - name: Discover Project Root
         run: |
           PROJECT=$(find extracted -name settings.gradle -o -name settings.gradle.kts | head -1)
           if [ -z "$PROJECT" ]; then
-            echo "Error: Android project (settings.gradle) not found inside ZIP."
+            echo "::error::settings.gradle standard structure not found inside archive."
             exit 1
           fi
           PROJECT_DIR=$(dirname "$PROJECT")
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-      - name: Configure AndroidX and Fix Kotlin Duplicate Classes
+      - name: Configure Network & Deep Linking Permissions
+        run: |
+          MANIFEST_FILE=$(find extracted -name "AndroidManifest.xml" | head -1)
+          if [ -f "$MANIFEST_FILE" ]; then
+            if ! grep -q "android.permission.INTERNET" "$MANIFEST_FILE"; then
+              sed -i '/<manifest/a \    <uses-permission android:name="android.permission.INTERNET" />' "$MANIFEST_FILE"
+              sed -i '/<manifest/a \    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />' "$MANIFEST_FILE"
+            fi
+            sed -i 's/<application/<application android:usesCleartextTraffic="true"/g' "$MANIFEST_FILE"
+          fi
+
+      - name: Apply Modern Build Configuration Patches
         run: |
           PROPS_FILE="$GITHUB_WORKSPACE/$PROJECT_DIR/gradle.properties"
           BUILD_FILE="$GITHUB_WORKSPACE/$PROJECT_DIR/build.gradle"
-          
-          echo "android.useAndroidX=true" >> "$PROPS_FILE"
-          echo "android.enableJetifier=true" >> "$PROPS_FILE"
-          
+
+          # Modern Gradle Performance & AndroidX flags
+          cat << 'EOF' >> "$PROPS_FILE"
+
+android.useAndroidX=true
+android.enableJetifier=true
+org.gradle.parallel=true
+org.gradle.caching=true
+org.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m
+kotlin.incremental=true
+EOF
+
+          # Inject Resolution Strategy to unify Kotlin Stdlib dependencies
           if [ -f "$BUILD_FILE" ]; then
-            echo "" >> "$BUILD_FILE"
-            echo "allprojects {" >> "$BUILD_FILE"
-            echo "    configurations.all {" >> "$BUILD_FILE"
-            echo "        resolutionStrategy {" >> "$BUILD_FILE"
-            echo "            eachDependency { details ->" >> "$BUILD_FILE"
-            echo "                if (details.requested.group == 'org.jetbrains.kotlin') {" >> "$BUILD_FILE"
-            echo "                    if (details.requested.name == 'kotlin-stdlib-jdk7' || details.requested.name == 'kotlin-stdlib-jdk8') {" >> "$BUILD_FILE"
-            echo "                        details.useTarget 'org.jetbrains.kotlin:kotlin-stdlib:1.8.22'" >> "$BUILD_FILE"
-            echo "                    }" >> "$BUILD_FILE"
-            echo "                }" >> "$BUILD_FILE"
-            echo "            }" >> "$BUILD_FILE"
-            echo "        }" >> "$BUILD_FILE"
-            echo "    }" >> "$BUILD_FILE"
-            echo "}" >> "$BUILD_FILE"
+            cat << 'EOF' >> "$BUILD_FILE"
+
+allprojects {
+    configurations.all {
+        resolutionStrategy {
+            eachDependency { details ->
+                if (details.requested.group == 'org.jetbrains.kotlin' && 
+                   (details.requested.name == 'kotlin-stdlib-jdk7' || details.requested.name == 'kotlin-stdlib-jdk8')) {
+                    details.useTarget "org.jetbrains.kotlin:kotlin-stdlib:${details.requested.version}"
+                }
+            }
+        }
+    }
+}
+EOF
           fi
 
-      - name: Set up Java 17
+      - name: Set up Java 17 with Advanced Gradle Caching
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
+          cache: gradle
 
-      - name: Build APK with Gradle
+      - name: Build Optimized Debug APK
         run: |
           cd "$GITHUB_WORKSPACE/$PROJECT_DIR"
           if [ -f "gradlew" ]; then
             chmod +x gradlew
-            ./gradlew assembleDebug --no-daemon
+            ./gradlew assembleDebug --parallel --build-cache --stacktrace
           else
-            gradle assembleDebug --no-daemon
+            gradle assembleDebug --parallel --build-cache --stacktrace
           fi
 
       - name: Upload Built APK Artifact
@@ -82,5 +104,5 @@ jobs:
         with:
           name: InstagramDataSearch-APK
           path: "**/build/outputs/apk/debug/*.apk"
-
+          if-no-files-found: error
           
