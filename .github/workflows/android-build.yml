@@ -36,11 +36,34 @@ jobs:
           PROJECT_DIR=$(dirname "$PROJECT")
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-      - name: Enable AndroidX Support
+      - name: Configure AndroidX and Fix Kotlin Duplicate Classes
         run: |
           PROPS_FILE="$GITHUB_WORKSPACE/$PROJECT_DIR/gradle.properties"
+          BUILD_FILE="$GITHUB_WORKSPACE/$PROJECT_DIR/build.gradle"
+          
+          # Enable AndroidX
           echo "android.useAndroidX=true" >> "$PROPS_FILE"
           echo "android.enableJetifier=true" >> "$PROPS_FILE"
+          
+          # Append Kotlin dependency resolution strategy to root build.gradle to fix duplicate classes
+          if [ -f "$BUILD_FILE" ]; then
+            cat << 'EOF' >> "$BUILD_FILE"
+
+allprojects {
+    configurations.all {
+        resolutionStrategy {
+            eachDependency { DependencyResolveDetails details ->
+                if (details.requested.group == 'org.jetbrains.kotlin') {
+                    if (details.requested.name == 'kotlin-stdlib-jdk7' || details.requested.name == 'kotlin-stdlib-jdk8') {
+                        details.useTarget 'org.jetbrains.kotlin:kotlin-stdlib:1.8.22'
+                    }
+                }
+            }
+        }
+    }
+}
+EOF
+          fi
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
