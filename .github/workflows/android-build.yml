@@ -47,42 +47,33 @@ jobs:
             sed -i 's/<application/<application android:usesCleartextTraffic="true"/g' "$MANIFEST_FILE"
           fi
 
-      - name: Apply Modern Build Configuration Patches
+      - name: Apply Build Properties and Dependency Fixes
         run: |
           PROPS_FILE="$GITHUB_WORKSPACE/$PROJECT_DIR/gradle.properties"
           BUILD_FILE="$GITHUB_WORKSPACE/$PROJECT_DIR/build.gradle"
 
-          # Modern Gradle Performance & AndroidX flags
-          cat << 'EOF' >> "$PROPS_FILE"
+          echo "android.useAndroidX=true" >> "$PROPS_FILE"
+          echo "android.enableJetifier=true" >> "$PROPS_FILE"
+          echo "org.gradle.parallel=true" >> "$PROPS_FILE"
+          echo "org.gradle.caching=true" >> "$PROPS_FILE"
+          echo "org.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m" >> "$PROPS_FILE"
 
-android.useAndroidX=true
-android.enableJetifier=true
-org.gradle.parallel=true
-org.gradle.caching=true
-org.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m
-kotlin.incremental=true
-EOF
-
-          # Inject Resolution Strategy to unify Kotlin Stdlib dependencies
           if [ -f "$BUILD_FILE" ]; then
-            cat << 'EOF' >> "$BUILD_FILE"
-
-allprojects {
-    configurations.all {
-        resolutionStrategy {
-            eachDependency { details ->
-                if (details.requested.group == 'org.jetbrains.kotlin' && 
-                   (details.requested.name == 'kotlin-stdlib-jdk7' || details.requested.name == 'kotlin-stdlib-jdk8')) {
-                    details.useTarget "org.jetbrains.kotlin:kotlin-stdlib:${details.requested.version}"
-                }
-            }
-        }
-    }
-}
-EOF
+            echo "" >> "$BUILD_FILE"
+            echo "allprojects {" >> "$BUILD_FILE"
+            echo "    configurations.all {" >> "$BUILD_FILE"
+            echo "        resolutionStrategy {" >> "$BUILD_FILE"
+            echo "            eachDependency { details ->" >> "$BUILD_FILE"
+            echo "                if (details.requested.group == 'org.jetbrains.kotlin' && (details.requested.name == 'kotlin-stdlib-jdk7' || details.requested.name == 'kotlin-stdlib-jdk8')) {" >> "$BUILD_FILE"
+            echo "                    details.useTarget 'org.jetbrains.kotlin:kotlin-stdlib:1.8.22'" >> "$BUILD_FILE"
+            echo "                }" >> "$BUILD_FILE"
+            echo "            }" >> "$BUILD_FILE"
+            echo "        }" >> "$BUILD_FILE"
+            echo "    }" >> "$BUILD_FILE"
+            echo "}" >> "$BUILD_FILE"
           fi
 
-      - name: Set up Java 17 with Advanced Gradle Caching
+      - name: Set up Java 17 with Gradle Cache
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -106,3 +97,9 @@ EOF
           path: "**/build/outputs/apk/debug/*.apk"
           if-no-files-found: error
           
+      
+
+        
+
+      
+  
