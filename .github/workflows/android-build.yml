@@ -36,6 +36,12 @@ jobs:
           PROJECT_DIR=$(dirname "$PROJECT")
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
+      - name: Enable AndroidX Support
+        run: |
+          PROPS_FILE="$GITHUB_WORKSPACE/$PROJECT_DIR/gradle.properties"
+          echo "android.useAndroidX=true" >> "$PROPS_FILE"
+          echo "android.enableJetifier=true" >> "$PROPS_FILE"
+
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
