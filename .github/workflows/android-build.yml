@@ -36,15 +36,24 @@ jobs:
           PROJECT_DIR=$(dirname "$PROJECT")
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-      - name: Configure Network & Deep Linking Permissions
+      - name: Configure Network Permissions Cleanly
         run: |
           MANIFEST_FILE=$(find extracted -name "AndroidManifest.xml" | head -1)
           if [ -f "$MANIFEST_FILE" ]; then
+            # Safely inject network permissions if not already present
             if ! grep -q "android.permission.INTERNET" "$MANIFEST_FILE"; then
               sed -i '/<manifest/a \    <uses-permission android:name="android.permission.INTERNET" />' "$MANIFEST_FILE"
+            fi
+            if ! grep -q "android.permission.ACCESS_NETWORK_STATE" "$MANIFEST_FILE"; then
               sed -i '/<manifest/a \    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />' "$MANIFEST_FILE"
             fi
-            sed -i 's/<application/<application android:usesCleartextTraffic="true"/g' "$MANIFEST_FILE"
+            
+            # Ensure usesCleartextTraffic="true" without duplicating
+            if grep -q "android:usesCleartextTraffic" "$MANIFEST_FILE"; then
+              sed -i 's/android:usesCleartextTraffic="false"/android:usesCleartextTraffic="true"/g' "$MANIFEST_FILE"
+            else
+              sed -i 's/<application/<application android:usesCleartextTraffic="true"/g' "$MANIFEST_FILE"
+            fi
           fi
 
       - name: Apply Build Properties and Dependency Fixes
@@ -97,9 +106,3 @@ jobs:
           path: "**/build/outputs/apk/debug/*.apk"
           if-no-files-found: error
           
-      
-
-        
-
-      
-  
